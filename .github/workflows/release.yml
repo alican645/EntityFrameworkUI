@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT: EFCoreTerminalUI/EFCoreTerminalUI.csproj
+  PACKAGE_ID: efcoreterminalui
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # tag ve GitHub Release için
+      id-token: write   # NuGet Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(grep -oPm1 '(?<=<Version>)[^<]+' ${{ env.PROJECT }})
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if curl -sf "https://api.nuget.org/v3-flatcontainer/${PACKAGE_ID}/index.json" | grep -q "\"${VERSION}\""; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$VERSION zaten NuGet'te yayınlı, yayın atlandı."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pack
+        if: steps.version.outputs.exists == 'false'
+        run: dotnet pack ${{ env.PROJECT }} -c Release -o artifacts
+
+      - name: NuGet login (OIDC)
+        if: steps.version.outputs.exists == 'false'
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: alican645  # nuget.org profil adı
+
+      - name: Push to NuGet
+        if: steps.version.outputs.exists == 'false'
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" artifacts/*.nupkg \
+            --target "${{ github.sha }}" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --generate-notes

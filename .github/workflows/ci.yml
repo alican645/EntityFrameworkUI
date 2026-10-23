@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+
+env:
+  PROJECT: EFCoreTerminalUI/EFCoreTerminalUI.csproj
+  PACKAGE_ID: efcoreterminalui
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build
+        run: dotnet build ${{ env.PROJECT }} -c Release
+
+      - name: Pack
+        run: dotnet pack ${{ env.PROJECT }} -c Release --no-build -o artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/*.nupkg
+
+  # main'e açılan PR'larda sürümün artırıldığını kontrol eder;
+  # aksi halde merge sonrası release adımı yayın yapmadan geçer.
+  version-check:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version is not published yet
+        run: |
+          VERSION=$(grep -oPm1 '(?<=<Version>)[^<]+' ${{ env.PROJECT }})
+          echo "Version: $VERSION"
+          if curl -sf "https://api.nuget.org/v3-flatcontainer/${PACKAGE_ID}/index.json" | grep -q "\"${VERSION}\""; then
+            echo "::error file=${{ env.PROJECT }}::$VERSION zaten NuGet'te yayınlı. <Version> değerini artır."
+            exit 1
+          fi
