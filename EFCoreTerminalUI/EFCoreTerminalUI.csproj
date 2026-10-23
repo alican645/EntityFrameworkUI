@@ -5,6 +5,22 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <RootNamespace>EFCoreTerminalUI</RootNamespace>
+
+        <!-- Global tool -->
+        <PackAsTool>true</PackAsTool>
+        <ToolCommandName>efui</ToolCommandName>
+        <PackageId>EFCoreTerminalUI</PackageId>
+        <Version>1.0.0</Version>
+        <Authors>Alican Aydın</Authors>
+        <Description>EF Core migration işlemleri için yön tuşlarıyla çalışan terminal arayüzü.</Description>
+        <PackageOutputPath>./nupkg</PackageOutputPath>
+        <!-- .NET 10 runtime yüklü makinelerde de çalışsın -->
+        <RollForward>Major</RollForward>
     </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    </ItemGroup>
 
 </Project>
