@@ -13,7 +13,14 @@
         <PackageId>EFCoreTerminalUI</PackageId>
         <Version>1.0.0</Version>
         <Authors>Alican Aydın</Authors>
-        <Description>EF Core migration işlemleri için yön tuşlarıyla çalışan terminal arayüzü.</Description>
+        <Description>Interactive terminal UI for EF Core migrations: pick projects and migrations with arrow keys to add, remove, update database or generate SQL scripts - no more typing dotnet ef commands. Community tool, not affiliated with Microsoft.</Description>
+        <PackageTags>efcore;entityframeworkcore;migrations;dotnet-ef;cli;tui;dotnet-tool</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <Copyright>Copyright (c) 2026 Alican Aydın</Copyright>
+        <PackageProjectUrl>https://github.com/alican645/EntityFrameworkUI</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/alican645/EntityFrameworkUI</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
         <PackageOutputPath>./nupkg</PackageOutputPath>
         <!-- .NET 10 runtime yüklü makinelerde de çalışsın -->
         <RollForward>Major</RollForward>
@@ -21,6 +28,10 @@
 
     <ItemGroup>
       <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="../README.md" Pack="true" PackagePath="/" />
     </ItemGroup>
 
 </Project>

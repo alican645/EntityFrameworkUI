@@ -5,15 +5,21 @@ EF Core migration işlemlerini yön tuşlarıyla yapan terminal arayüzü. `dotn
 ## Kurulum
 
 ```bash
+dotnet tool install --global EFCoreTerminalUI
+```
+
+Güncellemek için:
+
+```bash
+dotnet tool update --global EFCoreTerminalUI
+```
+
+Kaynaktan kurmak için:
+
+```bash
 cd EFCoreTerminalUI
 dotnet pack -c Release
 dotnet tool install --global --add-source ./nupkg EFCoreTerminalUI
-```
-
-Güncellemek için sürümü (`<Version>`) artırıp tekrar pack et, ardından:
-
-```bash
-dotnet tool update --global --add-source ./nupkg EFCoreTerminalUI
 ```
 
 ## Kullanım
@@ -47,3 +53,7 @@ Migration listesinde uygulananlar yeşil ✔, bekleyenler sarı ● ile gösteri
 - .NET 9 veya üzeri
 - `dotnet-ef` (yoksa açılışta yüklemeyi teklif eder)
 - Startup projesinde `Microsoft.EntityFrameworkCore.Design` paketi
+
+## Lisans
+
+MIT. Topluluk aracıdır; Microsoft ile bağlantısı yoktur.
