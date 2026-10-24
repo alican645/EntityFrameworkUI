@@ -1,15 +1,14 @@
+using EFCoreTerminalUI.Localization;
 using Spectre.Console;
 
 namespace EFCoreTerminalUI;
 
-public sealed class App(string root)
+public sealed class App(string root, UserConfig userConfig)
 {
     private Settings _settings = Settings.Load(root);
     private EfTool _ef = null!;
     private List<MigrationInfo> _migrations = [];
     private bool _dbConnected;
-
-    private const string Back = "← Geri";
 
     public async Task<int> RunAsync()
     {
@@ -26,8 +25,7 @@ public sealed class App(string root)
             RenderStatus();
 
             var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<MenuItem>()
-                    .Title("[bold]Ne yapmak istiyorsun?[/] [grey](↑/↓ ve Enter)[/]")
+                Select<MenuItem>(L.T.MenuPrompt)
                     .PageSize(12)
                     .UseConverter(MenuText)
                     .AddChoices(Enum.GetValues<MenuItem>()));
@@ -40,30 +38,78 @@ public sealed class App(string root)
                 case MenuItem.UpdateTo: await UpdateToSelectedAsync(); break;
                 case MenuItem.Script: await ScriptAsync(); break;
                 case MenuItem.Refresh: await RefreshAsync(connect: true); break;
-                case MenuItem.Configure:
-                    if (await ConfigureAsync(forceAsk: true)) await RefreshAsync(connect: true);
-                    break;
+                case MenuItem.Settings: await SettingsMenuAsync(); break;
                 case MenuItem.Drop: await DropDatabaseAsync(); break;
                 case MenuItem.Exit: return 0;
             }
         }
     }
 
-    private enum MenuItem { Add, Remove, UpdateLatest, UpdateTo, Script, Refresh, Configure, Drop, Exit }
+    private enum MenuItem { Add, Remove, UpdateLatest, UpdateTo, Script, Refresh, Settings, Drop, Exit }
 
     private static string MenuText(MenuItem item) => item switch
     {
-        MenuItem.Add => "[green]+[/] Add Migration",
-        MenuItem.Remove => "[red]-[/] Remove Last Migration",
-        MenuItem.UpdateLatest => "[deepskyblue1]↑[/] Update Database [grey](son migration)[/]",
-        MenuItem.UpdateTo => "[deepskyblue1]→[/] Update Database [grey](migration seç / geri al)[/]",
-        MenuItem.Script => "[grey]#[/] SQL Script oluştur",
-        MenuItem.Refresh => "[grey]↻[/] Listeyi yenile",
-        MenuItem.Configure => "[grey]*[/] Proje / DbContext değiştir",
-        MenuItem.Drop => "[red]![/] Drop Database",
-        MenuItem.Exit => "[grey]x[/] Çıkış",
+        MenuItem.Add => $"[green]+[/] {L.T.MenuAdd}",
+        MenuItem.Remove => $"[red]-[/] {L.T.MenuRemove}",
+        MenuItem.UpdateLatest => $"[deepskyblue1]↑[/] {L.T.MenuUpdate} [grey]{L.T.MenuUpdateLatestHint}[/]",
+        MenuItem.UpdateTo => $"[deepskyblue1]→[/] {L.T.MenuUpdate} [grey]{L.T.MenuUpdateToHint}[/]",
+        MenuItem.Script => $"[grey]#[/] {L.T.MenuScript}",
+        MenuItem.Refresh => $"[grey]↻[/] {L.T.MenuRefresh}",
+        MenuItem.Settings => $"[grey]*[/] {L.T.MenuSettings}",
+        MenuItem.Drop => $"[red]![/] {L.T.MenuDrop}",
+        MenuItem.Exit => $"[grey]x[/] {L.T.MenuExit}",
         _ => item.ToString()
     };
+
+    // ───────────────────────────── Ayarlar ─────────────────────────────
+
+    private enum SettingsItem { Language, Projects, Back }
+
+    private async Task SettingsMenuAsync()
+    {
+        while (true)
+        {
+            Header();
+            var choice = AnsiConsole.Prompt(
+                Select<SettingsItem>(L.T.SettingsTitle)
+                    .UseConverter(item => item switch
+                    {
+                        SettingsItem.Language => $"{L.T.SettingsLanguage} [grey]({Markup.Escape(L.Current.NativeName)})[/]",
+                        SettingsItem.Projects => L.T.SettingsProjects,
+                        _ => L.T.Back
+                    })
+                    .AddChoices(Enum.GetValues<SettingsItem>()));
+
+            switch (choice)
+            {
+                case SettingsItem.Language:
+                    PickLanguage(userConfig);
+                    break;
+                case SettingsItem.Projects:
+                    if (await ConfigureAsync(forceAsk: true)) await RefreshAsync(connect: true);
+                    return;
+                default:
+                    return;
+            }
+        }
+    }
+
+    /// <summary>Dil seçtirir, uygular ve kullanıcı ayarlarına kaydeder.</summary>
+    public static void PickLanguage(UserConfig config)
+    {
+        Header();
+        // Etkin dil en üstte
+        var ordered = L.Languages.OrderByDescending(l => l == L.Current).ToList();
+        var selected = AnsiConsole.Prompt(
+            Select<Language>(L.T.PickLanguage)
+                .UseConverter(l => $"{Markup.Escape(l.NativeName)} [grey]{l.Code}[/]")
+                .AddChoices(ordered));
+
+        L.Set(selected);
+        config.Language = selected.Code;
+        try { config.Save(); }
+        catch (Exception ex) { AnsiConsole.MarkupLine($"[yellow]{Format(L.T.SettingsSaveFailed, ex.Message)}[/]"); }
+    }
 
     // ───────────────────────────── Kurulum ─────────────────────────────
 
@@ -76,12 +122,12 @@ public sealed class App(string root)
     private static async Task<bool> EnsureEfInstalledAsync()
     {
         var installed = false;
-        await AnsiConsole.Status().StartAsync("dotnet-ef kontrol ediliyor...", async _ =>
+        await AnsiConsole.Status().StartAsync(L.T.CheckingEf, async _ =>
             installed = await EfTool.IsInstalledAsync());
         if (installed) return true;
 
-        AnsiConsole.MarkupLine("[yellow]dotnet-ef aracı bulunamadı.[/]");
-        if (!Confirm("Global olarak yüklensin mi? (dotnet tool install -g dotnet-ef)")) return false;
+        AnsiConsole.MarkupLine($"[yellow]{L.T.EfNotFound}[/]");
+        if (!Confirm(L.T.EfInstallConfirm)) return false;
 
         var r = await EfTool.InstallAsync(WriteOutputLine);
         return r.Success;
@@ -92,8 +138,8 @@ public sealed class App(string root)
         var projects = ProjectScanner.Scan(root);
         if (projects.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[red]Bu klasörde .csproj bulunamadı:[/] {Markup.Escape(root)}");
-            AnsiConsole.MarkupLine("[grey]efui'yi solution klasöründe çalıştır.[/]");
+            AnsiConsole.MarkupLine(Format(L.T.NoProjects, root));
+            AnsiConsole.MarkupLine($"[grey]{L.T.NoProjectsHint}[/]");
             return false;
         }
 
@@ -108,10 +154,8 @@ public sealed class App(string root)
             }
             else
             {
-                migration = PickProject(projects, "[bold]Migration projesi[/] (DbContext / Migrations klasörünün olduğu)",
-                    projects.OrderByDescending(p => p.MigrationScore).ToList());
-                startup = PickProject(projects, "[bold]Startup projesi[/] (appsettings / Program.cs olan)",
-                    projects.OrderByDescending(p => p.StartupScore).ToList());
+                migration = PickProject(L.T.PickMigrationProject, projects.OrderByDescending(p => p.MigrationScore).ToList());
+                startup = PickProject(L.T.PickStartupProject, projects.OrderByDescending(p => p.StartupScore).ToList());
             }
             _settings.DbContext = null;
         }
@@ -132,12 +176,11 @@ public sealed class App(string root)
     private static ProjectInfo? Find(List<ProjectInfo> projects, string? relativePath) =>
         relativePath is null ? null : projects.FirstOrDefault(p => p.RelativePath == relativePath);
 
-    private static ProjectInfo PickProject(List<ProjectInfo> all, string title, List<ProjectInfo> ordered)
+    private static ProjectInfo PickProject(string title, List<ProjectInfo> ordered)
     {
         Header();
         return AnsiConsole.Prompt(
-            new SelectionPrompt<ProjectInfo>()
-                .Title(title + " [grey](önerilen en üstte)[/]")
+            Select<ProjectInfo>($"{title} [grey]{L.T.SuggestedFirst}[/]")
                 .PageSize(15)
                 .UseConverter(p => $"{Markup.Escape(p.Name)} [grey]{Markup.Escape(p.RelativePath)}[/]")
                 .AddChoices(ordered));
@@ -147,23 +190,15 @@ public sealed class App(string root)
     {
         Header();
         JsonCommandResult<List<DbContextInfo>>? result = null;
-        await AnsiConsole.Status().StartAsync("Proje derleniyor, DbContext'ler aranıyor...", async _ =>
+        await AnsiConsole.Status().StartAsync(L.T.LoadingContexts, async _ =>
             result = await _ef.ListDbContextsAsync());
 
         var contexts = result!.Data;
-        if (contexts is null)
+        if (contexts is null || contexts.Count == 0)
         {
-            AnsiConsole.MarkupLine("[red]DbContext listesi alınamadı.[/]");
-            PrintErrors(result.Process);
-            if (Confirm("Proje seçimini değiştirmek ister misin?"))
-                return await ConfigureAsync(forceAsk: true);
-            return false;
-        }
-
-        if (contexts.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[red]Seçili projelerde DbContext bulunamadı.[/]");
-            if (Confirm("Proje seçimini değiştirmek ister misin?"))
+            AnsiConsole.MarkupLine($"[red]{(contexts is null ? L.T.ContextListFailed : L.T.NoContexts)}[/]");
+            if (contexts is null) PrintErrors(result.Process);
+            if (Confirm(L.T.ChangeProjectsConfirm))
                 return await ConfigureAsync(forceAsk: true);
             return false;
         }
@@ -171,8 +206,7 @@ public sealed class App(string root)
         var selected = contexts.Count == 1
             ? contexts[0]
             : AnsiConsole.Prompt(
-                new SelectionPrompt<DbContextInfo>()
-                    .Title("[bold]DbContext seç[/]")
+                Select<DbContextInfo>(L.T.PickContext)
                     .UseConverter(c => $"{Markup.Escape(c.Name)} [grey]{Markup.Escape(c.FullName)}[/]")
                     .AddChoices(contexts));
 
@@ -184,7 +218,7 @@ public sealed class App(string root)
     private void SaveSettings()
     {
         try { _settings.Save(root); }
-        catch (Exception ex) { AnsiConsole.MarkupLine($"[yellow]Ayarlar kaydedilemedi: {Markup.Escape(ex.Message)}[/]"); }
+        catch (Exception ex) { AnsiConsole.MarkupLine($"[yellow]{Format(L.T.SettingsSaveFailed, ex.Message)}[/]"); }
     }
 
     // ───────────────────────────── Liste ─────────────────────────────
@@ -192,13 +226,13 @@ public sealed class App(string root)
     private async Task RefreshAsync(bool connect, bool noBuild = false)
     {
         JsonCommandResult<List<MigrationInfo>>? result = null;
-        await AnsiConsole.Status().StartAsync(noBuild ? "Migration'lar okunuyor..." : "Derleniyor ve migration'lar okunuyor...", async ctx =>
+        await AnsiConsole.Status().StartAsync(noBuild ? L.T.ReadingMigrations : L.T.BuildingAndReading, async ctx =>
         {
             result = await _ef.ListMigrationsAsync(connect, noBuild);
             if (result.Data is null && connect)
             {
                 // Veritabanına bağlanılamadıysa bağlantısız tekrar dene
-                ctx.Status("Veritabanına bağlanılamadı, bağlantısız okunuyor...");
+                ctx.Status(L.T.DbUnreachableRetry);
                 result = await _ef.ListMigrationsAsync(connect: false, noBuild: true);
             }
         });
@@ -207,7 +241,7 @@ public sealed class App(string root)
         {
             _migrations = [];
             _dbConnected = false;
-            AnsiConsole.MarkupLine("[red]Migration listesi alınamadı.[/]");
+            AnsiConsole.MarkupLine($"[red]{L.T.MigrationListFailed}[/]");
             PrintErrors(result.Process);
             Pause();
             return;
@@ -220,40 +254,40 @@ public sealed class App(string root)
     private void RenderStatus()
     {
         var info = new Grid().AddColumn(new GridColumn().NoWrap()).AddColumn();
-        info.AddRow("[grey]Klasör[/]", Markup.Escape(root));
-        info.AddRow("[grey]Migration[/]", Markup.Escape(_settings.MigrationProject ?? "-"));
-        info.AddRow("[grey]Startup[/]", Markup.Escape(_settings.StartupProject ?? "-"));
-        info.AddRow("[grey]DbContext[/]", Markup.Escape(_settings.DbContext ?? "-"));
-        info.AddRow("[grey]Veritabanı[/]", _dbConnected ? "[green]bağlı[/]" : "[yellow]bağlanılamadı (durum bilinmiyor)[/]");
+        info.AddRow($"[grey]{L.T.LabelFolder}[/]", Markup.Escape(root));
+        info.AddRow($"[grey]{L.T.LabelMigration}[/]", Markup.Escape(_settings.MigrationProject ?? "-"));
+        info.AddRow($"[grey]{L.T.LabelStartup}[/]", Markup.Escape(_settings.StartupProject ?? "-"));
+        info.AddRow($"[grey]{L.T.LabelContext}[/]", Markup.Escape(_settings.DbContext ?? "-"));
+        info.AddRow($"[grey]{L.T.LabelDatabase}[/]", _dbConnected ? $"[green]{L.T.DbConnected}[/]" : $"[yellow]{L.T.DbNotConnected}[/]");
         AnsiConsole.Write(info);
         AnsiConsole.WriteLine();
 
         if (_migrations.Count == 0)
         {
-            AnsiConsole.MarkupLine("[grey]Henüz migration yok.[/]\n");
+            AnsiConsole.MarkupLine($"[grey]{L.T.NoMigrations}[/]\n");
             return;
         }
 
         var table = new Table().Border(TableBorder.Rounded).Expand();
         table.AddColumn("#");
-        table.AddColumn("Migration");
-        table.AddColumn("Durum");
+        table.AddColumn(L.T.ColMigration);
+        table.AddColumn(L.T.ColStatus);
 
         const int maxRows = 10;
         var start = Math.Max(0, _migrations.Count - maxRows);
-        if (start > 0) table.AddRow("[grey]…[/]", $"[grey]{start} eski migration gizlendi[/]", "");
+        if (start > 0) table.AddRow("[grey]…[/]", $"[grey]{Format(L.T.HiddenOlder, start)}[/]", "");
 
         for (var i = start; i < _migrations.Count; i++)
         {
             var m = _migrations[i];
             var isLast = i == _migrations.Count - 1;
             var name = Markup.Escape(m.Id);
-            if (isLast) name = $"[bold deepskyblue1]{name}[/]  [deepskyblue1]◀ son[/]";
+            if (isLast) name = $"[bold deepskyblue1]{name}[/]  [deepskyblue1]{L.T.Latest}[/]";
 
             var status = m.Applied switch
             {
-                true => "[green]✔ uygulandı[/]",
-                false => "[yellow]● bekliyor[/]",
+                true => $"[green]{L.T.Applied}[/]",
+                false => $"[yellow]{L.T.Pending}[/]",
                 null => "[grey]?[/]"
             };
             table.AddRow((i + 1).ToString(), name, status);
@@ -262,7 +296,7 @@ public sealed class App(string root)
         AnsiConsole.Write(table);
 
         var pending = _migrations.Count(m => m.Applied == false);
-        if (pending > 0) AnsiConsole.MarkupLine($"[yellow]{pending} migration veritabanına uygulanmamış.[/]");
+        if (pending > 0) AnsiConsole.MarkupLine($"[yellow]{Format(L.T.PendingCount, pending)}[/]");
         AnsiConsole.WriteLine();
     }
 
@@ -271,15 +305,15 @@ public sealed class App(string root)
     private async Task AddMigrationAsync()
     {
         var name = AnsiConsole.Prompt(
-            new TextPrompt<string>("Migration adı [grey](boş bırak = iptal)[/]:")
+            new TextPrompt<string>(L.T.MigrationNamePrompt)
                 .AllowEmpty()
                 .Validate(n => n.Length == 0 || n.All(c => char.IsLetterOrDigit(c) || c == '_')
                     ? ValidationResult.Success()
-                    : ValidationResult.Error("[red]Sadece harf, rakam ve _ kullan[/]")));
+                    : ValidationResult.Error(L.T.MigrationNameInvalid)));
         if (string.IsNullOrWhiteSpace(name)) return;
 
         var r = await RunWithOutputAsync($"migrations add {name}", on => _ef.AddMigrationAsync(name, null, on));
-        if (r.Success && Confirm("Veritabanı şimdi güncellensin mi?", defaultValue: false))
+        if (r.Success && Confirm(L.T.UpdateNowConfirm, defaultValue: false))
         {
             await RunWithOutputAsync("database update", on => _ef.UpdateDatabaseAsync(null, on));
         }
@@ -290,7 +324,7 @@ public sealed class App(string root)
     {
         if (_migrations.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]Silinecek migration yok.[/]");
+            AnsiConsole.MarkupLine($"[yellow]{L.T.NothingToRemove}[/]");
             Pause();
             return;
         }
@@ -300,15 +334,14 @@ public sealed class App(string root)
 
         if (last.Applied == true)
         {
-            AnsiConsole.MarkupLine($"[yellow]Uyarı:[/] [bold]{Markup.Escape(last.Id)}[/] veritabanına uygulanmış.");
+            AnsiConsole.MarkupLine(Format(L.T.WarningApplied, last.Id));
             var option = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("Nasıl devam edilsin?")
-                    .AddChoices("Veritabanından geri al ve sil (--force)", Back));
-            if (option == Back) return;
+                Select<string>(L.T.HowToContinue)
+                    .AddChoices(L.T.RevertAndRemove, L.T.Back));
+            if (option == L.T.Back) return;
             force = true;
         }
-        else if (!Confirm($"[bold]{Markup.Escape(last.Id)}[/] silinsin mi?", defaultValue: false))
+        else if (!Confirm(Format(L.T.RemoveConfirm, last.Id), defaultValue: false))
         {
             return;
         }
@@ -319,15 +352,15 @@ public sealed class App(string root)
 
     private async Task UpdateToSelectedAsync()
     {
-        const string zero = "0 — tüm migration'ları geri al (boş veritabanı)";
+        var back = L.T.Back;
+        var zero = L.T.RevertAllOption;
 
-        var choices = new List<string> { Back };
+        var choices = new List<string> { back };
         choices.AddRange(_migrations.AsEnumerable().Reverse().Select(m => m.Id));
         choices.Add(zero);
 
         var selected = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("Veritabanı hangi migration'a getirilsin? [grey](en yeni üstte)[/]")
+            Select<string>(L.T.UpdateTargetPrompt)
                 .PageSize(15)
                 .UseConverter(id =>
                 {
@@ -341,10 +374,10 @@ public sealed class App(string root)
                 })
                 .AddChoices(choices));
 
-        if (selected == Back) return;
+        if (selected == back) return;
         var target = selected == zero ? "0" : selected;
 
-        if (target == "0" && !Confirm("[red]Tüm migration'lar geri alınacak.[/] Emin misin?", defaultValue: false))
+        if (target == "0" && !Confirm(L.T.RevertAllConfirm, defaultValue: false))
             return;
 
         await UpdateDatabaseAsync(target);
@@ -361,46 +394,44 @@ public sealed class App(string root)
     {
         if (_migrations.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]Script oluşturmak için migration yok.[/]");
+            AnsiConsole.MarkupLine($"[yellow]{L.T.NoMigrationsForScript}[/]");
             Pause();
             return;
         }
 
-        const string fromStart = "(baştan)";
+        var fromStart = L.T.FromStart;
         var ids = _migrations.Select(m => m.Id).ToList();
 
-        var from = AnsiConsole.Prompt(new SelectionPrompt<string>()
-            .Title("Başlangıç migration'ı [grey](bu migration hariç sonrası)[/]")
+        var from = AnsiConsole.Prompt(Select<string>(L.T.ScriptFromPrompt)
             .PageSize(15)
             .AddChoices([fromStart, .. ids]));
 
         var toChoices = from == fromStart ? ids : ids.Skip(ids.IndexOf(from) + 1).ToList();
         if (toChoices.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]Seçilen migration zaten en son.[/]");
+            AnsiConsole.MarkupLine($"[yellow]{L.T.AlreadyLatest}[/]");
             Pause();
             return;
         }
 
-        var to = AnsiConsole.Prompt(new SelectionPrompt<string>()
-            .Title("Bitiş migration'ı")
+        var to = AnsiConsole.Prompt(Select<string>(L.T.ScriptToPrompt)
             .PageSize(15)
             .AddChoices(toChoices.AsEnumerable().Reverse()));
 
-        var idempotent = Confirm("Idempotent script olsun mu?", defaultValue: false);
-        var output = AnsiConsole.Prompt(new TextPrompt<string>("Çıktı dosyası:").DefaultValue($"migration_{DateTime.Now:yyyyMMdd_HHmmss}.sql"));
+        var idempotent = Confirm(L.T.IdempotentConfirm, defaultValue: false);
+        var output = AnsiConsole.Prompt(new TextPrompt<string>(L.T.OutputFilePrompt).DefaultValue($"migration_{DateTime.Now:yyyyMMdd_HHmmss}.sql"));
         var outputPath = Path.GetFullPath(output, root);
 
         var r = await RunWithOutputAsync("migrations script",
             on => _ef.ScriptAsync(from == fromStart ? "0" : from, to, idempotent, outputPath, on), pause: false);
-        if (r.Success) AnsiConsole.MarkupLine($"[green]Script yazıldı:[/] {Markup.Escape(outputPath)}");
+        if (r.Success) AnsiConsole.MarkupLine(Format(L.T.ScriptWritten, outputPath));
         Pause();
     }
 
     private async Task DropDatabaseAsync()
     {
-        AnsiConsole.MarkupLine("[red bold]Bu işlem veritabanını tamamen siler![/]");
-        var confirm = AnsiConsole.Prompt(new TextPrompt<string>("Onaylamak için [red]DROP[/] yaz:").AllowEmpty());
+        AnsiConsole.MarkupLine(L.T.DropWarning);
+        var confirm = AnsiConsole.Prompt(new TextPrompt<string>(L.T.DropConfirmPrompt).AllowEmpty());
         if (confirm != "DROP") return;
 
         await RunWithOutputAsync("database drop", on => _ef.DropDatabaseAsync(on));
@@ -417,7 +448,7 @@ public sealed class App(string root)
         var r = await action(WriteOutputLine);
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine(r.Success ? "[green bold]✔ Tamamlandı[/]" : $"[red bold]✘ Başarısız (çıkış kodu {r.ExitCode})[/]");
+        AnsiConsole.MarkupLine(r.Success ? $"[green bold]{L.T.Done}[/]" : $"[red bold]{Format(L.T.Failed, r.ExitCode)}[/]");
         if (pause) Pause();
         return r;
     }
@@ -449,23 +480,32 @@ public sealed class App(string root)
         if (lines.Count == 0) lines = result.Lines.TakeLast(25).ToList();
 
         var panel = new Panel(new Markup($"[red]{Markup.Escape(string.Join('\n', lines))}[/]"))
-            .Header("dotnet ef çıktısı")
+            .Header(Markup.Escape(L.T.EfOutputHeader))
             .BorderColor(Color.Red);
         AnsiConsole.Write(panel);
     }
 
+    // ───────────────────────────── Yardımcılar ─────────────────────────────
+
+    /// <summary>Yerelleştirilmiş metne kaçırılmış (escape) değer yerleştirir.</summary>
+    private static string Format(string template, object value) =>
+        string.Format(template, Markup.Escape(value.ToString() ?? ""));
+
+    private static SelectionPrompt<T> Select<T>(string title) where T : notnull =>
+        new SelectionPrompt<T>().Title(title).MoreChoicesText(L.T.MoreChoices);
+
     private static bool Confirm(string prompt, bool defaultValue = true) =>
         AnsiConsole.Prompt(new ConfirmationPrompt(prompt)
         {
-            Yes = 'e',
-            No = 'h',
+            Yes = L.T.Yes,
+            No = L.T.No,
             DefaultValue = defaultValue,
-            InvalidChoiceMessage = "[red]e (evet) veya h (hayır) gir[/]"
+            InvalidChoiceMessage = L.T.InvalidYesNo
         });
 
     private static void Pause()
     {
-        AnsiConsole.MarkupLine("[grey]Devam etmek için bir tuşa bas...[/]");
+        AnsiConsole.MarkupLine($"[grey]{L.T.PressAnyKey}[/]");
         Console.ReadKey(intercept: true);
     }
 }

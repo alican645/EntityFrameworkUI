@@ -6,3 +6,6 @@ nupkg/
 .vs/
 .idea/
 .DS_Store
+
+# Yerel notlar
+docs/ROADMAP.md
