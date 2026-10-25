@@ -11,7 +11,7 @@
         <PackAsTool>true</PackAsTool>
         <ToolCommandName>efui</ToolCommandName>
         <PackageId>EFCoreTerminalUI</PackageId>
-        <Version>1.1.0</Version>
+        <Version>1.1.1</Version>
         <Authors>Alican Aydın</Authors>
         <Description>Interactive terminal UI for EF Core migrations: pick projects and migrations with arrow keys to add, remove, update database or generate SQL scripts - no more typing dotnet ef commands. Community tool, not affiliated with Microsoft.</Description>
         <PackageTags>efcore;entityframeworkcore;migrations;dotnet-ef;cli;tui;dotnet-tool</PackageTags>
