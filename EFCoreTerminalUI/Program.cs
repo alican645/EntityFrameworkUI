@@ -17,6 +17,14 @@ if (!Directory.Exists(root))
     return 1;
 }
 
+// Bir alt projeden çalıştırıldıysa solution klasörüne çık
+var solutionRoot = ProjectScanner.FindSolutionRoot(root);
+if (solutionRoot != root)
+{
+    AnsiConsole.MarkupLine(string.Format(L.T.SolutionRootUsed, Markup.Escape(solutionRoot)));
+    root = solutionRoot;
+}
+
 try
 {
     // İlk çalıştırmada dil sor (sistem dili en üstte)

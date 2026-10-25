@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using EFCoreTerminalUI.Localization;
 using Spectre.Console;
 
@@ -440,7 +441,7 @@ public sealed class App(string root, UserConfig userConfig)
 
     // ───────────────────────────── Çıktı ─────────────────────────────
 
-    private static async Task<ProcessResult> RunWithOutputAsync(string title, Func<Action<string, bool>, Task<ProcessResult>> action, bool pause = true)
+    private async Task<ProcessResult> RunWithOutputAsync(string title, Func<Action<string, bool>, Task<ProcessResult>> action, bool pause = true)
     {
         AnsiConsole.WriteLine();
         AnsiConsole.Write(new Rule($"[bold]dotnet ef {Markup.Escape(title)}[/]").LeftJustified());
@@ -449,8 +450,40 @@ public sealed class App(string root, UserConfig userConfig)
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine(r.Success ? $"[green bold]{L.T.Done}[/]" : $"[red bold]{Format(L.T.Failed, r.ExitCode)}[/]");
+
+        // Yanlış migration projesi seçiliyse doğrusuna geçip tekrar dene (action _ef'i her çağrıda yeniden okur)
+        if (!r.Success && TrySwitchToMigrationsAssembly(r))
+            return await RunWithOutputAsync(title, action, pause);
+
         if (pause) Pause();
         return r;
+    }
+
+    private static readonly Regex MigrationsAssemblyPattern = new(@"migrations\s+assembly\s+'([^']+)'", RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// "Your target project 'X' doesn't match your migrations assembly 'Y'" hatasında
+    /// Y adlı projeyi bulur ve kullanıcı onaylarsa migration projesi olarak kaydeder.
+    /// </summary>
+    private bool TrySwitchToMigrationsAssembly(ProcessResult result)
+    {
+        var output = string.Join(' ', result.Lines.Select(l => EfTool.SplitPrefix(l).Text));
+        var match = MigrationsAssemblyPattern.Match(output);
+        if (!match.Success) return false;
+
+        var assembly = match.Groups[1].Value;
+        var project = ProjectScanner.Scan(root)
+            .FirstOrDefault(p => p.Name.Equals(assembly, StringComparison.OrdinalIgnoreCase));
+        if (project is null || project.RelativePath == _settings.MigrationProject) return false;
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine(Format(L.T.MigrationsAssemblyMismatch, project.Name));
+        if (!Confirm(Format(L.T.SwitchMigrationProjectConfirm, project.RelativePath))) return false;
+
+        _settings.MigrationProject = project.RelativePath;
+        _ef = new EfTool(root, project.RelativePath, _settings.StartupProject!, _settings.DbContext);
+        SaveSettings();
+        return true;
     }
 
     private static void WriteOutputLine(string line, bool isError)

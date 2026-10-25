@@ -27,6 +27,27 @@ public static class ProjectScanner
         "bin", "obj", ".git", ".vs", ".idea", "node_modules", "packages", "artifacts", "nupkg"
     };
 
+    /// <summary>
+    /// Klasörde solution yoksa üst klasörlerde .sln/.slnx arar; bulursa o klasörü döner.
+    /// Böylece efui katmanlı bir solution'ın alt projesinden çalıştırılsa da tüm projeleri görür.
+    /// </summary>
+    public static string FindSolutionRoot(string start)
+    {
+        const int maxLevelsUp = 4;
+        var dir = new DirectoryInfo(start);
+        for (var level = 0; dir is not null && level <= maxLevelsUp; level++, dir = dir.Parent)
+        {
+            if (HasSolution(dir.FullName)) return dir.FullName;
+        }
+        return start;
+    }
+
+    private static bool HasSolution(string dir)
+    {
+        try { return Directory.EnumerateFiles(dir, "*.sln").Any() || Directory.EnumerateFiles(dir, "*.slnx").Any(); }
+        catch { return false; }
+    }
+
     public static List<ProjectInfo> Scan(string root)
     {
         var result = new List<ProjectInfo>();
@@ -84,7 +105,10 @@ public static class ProjectScanner
             FullPath: path,
             RelativePath: Path.GetRelativePath(root, path),
             Name: Path.GetFileNameWithoutExtension(path),
-            ReferencesEfCore: packages.Any(p => p.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+            // Design/Tools yalnızca tasarım zamanı paketleridir; migration projesine işaret etmez
+            ReferencesEfCore: packages.Any(p => (p.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+                                                 && !p.Equals("Microsoft.EntityFrameworkCore.Design", StringComparison.OrdinalIgnoreCase)
+                                                 && !p.Equals("Microsoft.EntityFrameworkCore.Tools", StringComparison.OrdinalIgnoreCase))
                                                 || p.StartsWith("Npgsql.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
                                                 || p.StartsWith("Pomelo.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)),
             ReferencesEfDesign: packages.Any(p => p.Equals("Microsoft.EntityFrameworkCore.Design", StringComparison.OrdinalIgnoreCase)

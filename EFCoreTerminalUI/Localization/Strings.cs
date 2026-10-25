@@ -33,6 +33,7 @@ public sealed record Strings
     public string CheckingEf { get; init; } = "Checking dotnet-ef...";
     public string EfNotFound { get; init; } = "dotnet-ef tool not found.";
     public string EfInstallConfirm { get; init; } = "Install it globally? (dotnet tool install -g dotnet-ef)";
+    public string SolutionRootUsed { get; init; } = "[grey]Using solution folder:[/] {0}";
     public string NoProjects { get; init; } = "[red]No .csproj found in this folder:[/] {0}";
     public string NoProjectsHint { get; init; } = "Run efui in your solution folder.";
     public string PickMigrationProject { get; init; } = "[bold]Migration project[/] (where the DbContext / Migrations folder lives)";
@@ -44,6 +45,9 @@ public sealed record Strings
     public string ChangeProjectsConfirm { get; init; } = "Do you want to change the project selection?";
     public string PickContext { get; init; } = "[bold]Select DbContext[/]";
     public string SettingsSaveFailed { get; init; } = "Could not save settings: {0}";
+
+    public string MigrationsAssemblyMismatch { get; init; } = "[yellow]The migrations live in [bold]{0}[/], not in the selected migration project.[/]";
+    public string SwitchMigrationProjectConfirm { get; init; } = "Switch the migration project to [bold]{0}[/] and retry?";
 
     // Liste / durum
     public string ReadingMigrations { get; init; } = "Reading migrations...";
